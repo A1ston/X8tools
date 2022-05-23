@@ -1,12 +1,6 @@
 @echo off
 @title AutoOnlinedisk
 setlocal EnableDelayedExpansion
-for /f "skip=2 tokens=2*" %%a in ('reg query "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion" /v "ProductName"') do set os=%%b
-if "%os%" neq "Windows Server 2019 Datacenter" (
-	echo This script does not support windows server 2012R2
-	pause
-	goto end
-	)
 if not exist .\listdisk.cfg fsutil file createnew listdisk.cfg 0&echo list disk>listdisk.cfg
 if not exist .\listvolume.cfg fsutil file createnew listvolume.cfg 0&echo list volume>listvolume.cfg
 		diskpart /s .\listdisk.cfg|findstr /i /c:"offline"
@@ -35,7 +29,8 @@ if not exist .\listvolume.cfg fsutil file createnew listvolume.cfg 0&echo list v
 			if "%m%" equ "" goto end
 		if %m% equ 7 call :checkdisk_amount_ver2
 			if "%m%" equ "" goto end
-		
+		set m=
+		diskpart /s .\listvolume.cfg
 		echo   All Target disk has been online
 	
 		@rem scan_isReadOnly
@@ -87,11 +82,11 @@ if not exist .\listvolume.cfg fsutil file createnew listvolume.cfg 0&echo list v
 		
 		:checkdisk_amount_ver2
 		if %m% equ 0 (
-			diskpart /s .\listvolume.cfg|findstr /m /c:"Volume 0         System Rese  NTFS">nul
+			diskpart /s .\listvolume.cfg|findstr /m /c:"Volume 0">nul
 			if !errorlevel! equ 0 (
-				diskpart /s .\listvolume.cfg|findstr /m /c:"Volume 1     C                NTFS">nul
+				diskpart /s .\listvolume.cfg|findstr /m /c:"Volume 1">nul
 				if !errorlevel! equ 0 (
-					diskpart /s .\listvolume.cfg|findstr /m /c:"Volume 2                      FAT">nul
+					diskpart /s .\listvolume.cfg|findstr /m /c:"Volume 2">nul
 					if !errorlevel! equ 0 (
 						echo Disk!m! Check OK
 						set /a m=!m!+1
@@ -101,8 +96,12 @@ if not exist .\listvolume.cfg fsutil file createnew listvolume.cfg 0&echo list v
 			)
 		)
 		
-		diskpart /s .\listvolume.cfg|findstr /m /c:"Volume %s%     %ltr%   %m%            NTFS">nul
-		if %errorlevel% equ 1 goto checkdiskfail
+		diskpart /s .\listvolume.cfg|findstr /m /c:"Volume %s%     %ltr%">nul
+		if %errorlevel% equ 1 (
+			for /f "tokens=3" %%a in ('diskpart /s .\listvolume.cfg^|findstr /m /c:"Volume !s!"') do set ltr=%%a
+			diskpart /s .\listvolume.cfg|findstr /m /c:"Volume !s!     !ltr!">nul
+			if !errorlevel! equ 1 goto checkdiskfail
+			)
 		if %errorlevel% equ 0 (
 			echo Disk!m! Check OK
 			set /a s=!s!+1
@@ -116,11 +115,15 @@ if not exist .\listvolume.cfg fsutil file createnew listvolume.cfg 0&echo list v
 			)
 			goto :eof
 		
-		
 		if %m% equ 7 (
-			diskpart /s .\listvolume.cfg|findstr /m /c:"Volume %s%     %ltr%   %m%            NTFS">nul
-			if !errorlevel! equ 1 goto checkdiskfail
+			diskpart /s .\listvolume.cfg|findstr /m /c:"Volume %s%     %ltr%">nul
+			if !errorlevel! equ 1 (
+				for /f "tokens=3" %%a in ('diskpart /s .\listvolume.cfg^|findstr /m /c:"Volume !s!"') do set ltr=%%a
+				if !errorlevel! equ 1 goto checkdiskfail
+				)
 			if !errorlevel! equ 0 echo disk!m! Check OK
+			set s=
+			set ltr=
 			goto :eof
 		)
 	
