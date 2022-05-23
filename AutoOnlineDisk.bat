@@ -1,19 +1,14 @@
 @echo off
-@title AutoOnlineDisk
+@title AutoOnlinedisk
 setlocal EnableDelayedExpansion
-
-		echo Check Host Name ..
-		if "%computername%" neq "X8" (
-		echo =============================
-		echo = Tool is only for X8Server =
-		echo =============================
-		color 0c
-		pause
-		goto end
-		)
-		echo Check Host Name OK
-
-if not exist .\listdisk.cfg fsutil file createnew listdisk.cfg 0
+for /f "skip=2 tokens=2*" %%a in ('reg query "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion" /v "ProductName"') do set os=%%b
+if "%os%" neq "Windows Server 2019 Datacenter" (
+	echo This script does not support windows server 2012R2
+	pause
+	goto end
+	)
+if not exist .\listdisk.cfg fsutil file createnew listdisk.cfg 0&echo list disk>listdisk.cfg
+if not exist .\listvolume.cfg fsutil file createnew listvolume.cfg 0&echo list volume>listvolume.cfg
 		diskpart /s .\listdisk.cfg|findstr /i /c:"offline"
 		if %errorlevel% equ 0 (
 			echo   Target disk state is offline ..
@@ -22,6 +17,8 @@ if not exist .\listdisk.cfg fsutil file createnew listdisk.cfg 0
 		)
 		@rem check disk amount
 		set m=0
+		set s=3
+		set ltr=D
 		call :checkdisk_amount_ver2
 		
 		if %m% equ 1 call :checkdisk_amount_ver2
@@ -59,10 +56,10 @@ if not exist .\listdisk.cfg fsutil file createnew listdisk.cfg 0
 		
 		
 		:check_readonly_loop
-		for /f %%a in ('powershell "(get-disk -Number %n%).isReadOnly"') do if "%%a" equ "True" (
-			echo remove target disk number !n! readonly state ..
+		for /f %%a in ('powershell -command "(get-disk -Number %n%).isReadOnly"') do if "%%a" equ "True" (
+			echo starting remove target disk number !n! readonly state ..
 			call :remove_readonly
-			echo ===== remove target disk number !n! readonly state success  =====
+			echo ===== remove target disk number !n! state success  =====
 		)
 		echo disk number !n! readonly state check ok!
 			if %n% equ 7 set n=&goto :eof
@@ -73,7 +70,7 @@ if not exist .\listdisk.cfg fsutil file createnew listdisk.cfg 0
 		:remove_readonly
 		if not exist .\value.cfg fsutil file createnew value.cfg 0
 		echo ^!n!>.\value.cfg
-		powershell "set-disk -IsReadOnly $False"<.\value.cfg
+		powershell -command "set-disk -IsReadOnly $False"<.\value.cfg
 		goto :eof
 		
 		::powershell -command get-disk|findstr /c:"7      "
@@ -89,17 +86,44 @@ if not exist .\listdisk.cfg fsutil file createnew listdisk.cfg 0
 		goto :eof
 		
 		:checkdisk_amount_ver2
-		if %m% equ 7 (
-			diskpart /s .\listdisk.cfg|findstr /c:"Disk !m!"
-			if !errorlevel! equ 1 goto checkdiskfail
-			if !errorlevel! equ 0 set m=0&goto :eof
+		if %m% equ 0 (
+			diskpart /s .\listvolume.cfg|findstr /m /c:"Volume 0         System Rese  NTFS">nul
+			if !errorlevel! equ 0 (
+				diskpart /s .\listvolume.cfg|findstr /m /c:"Volume 1     C                NTFS">nul
+				if !errorlevel! equ 0 (
+					diskpart /s .\listvolume.cfg|findstr /m /c:"Volume 2                      FAT">nul
+					if !errorlevel! equ 0 (
+						echo Disk!m! Check OK
+						set /a m=!m!+1
+						goto :eof
+					)
+				)
+			)
 		)
-		diskpart /s .\listdisk.cfg|findstr /c:"Disk !m!"
+		
+		diskpart /s .\listvolume.cfg|findstr /m /c:"Volume %s%     %ltr%   %m%            NTFS">nul
 		if %errorlevel% equ 1 goto checkdiskfail
-		if %errorlevel% equ 0 set /a m=%m%+1
-		goto :eof
+		if %errorlevel% equ 0 (
+			echo Disk!m! Check OK
+			set /a s=!s!+1
+			set /a m=!m!+1
+				if !ltr! equ F set ltr=G&goto :eof
+				if !ltr! equ G set ltr=H&goto :eof
+				if !ltr! equ H set ltr=I&goto :eof
+				if !ltr! equ I set ltr=J&goto :eof
+			@rem ltr+1 to hex convert upper
+			for /f %%a in ('"powershell [Convert]::ToString(0x!ltr!+1,16).ToUpper()"') do set ltr=%%a
+			)
+			goto :eof
 		
 		
+		if %m% equ 7 (
+			diskpart /s .\listvolume.cfg|findstr /m /c:"Volume %s%     %ltr%   %m%            NTFS">nul
+			if !errorlevel! equ 1 goto checkdiskfail
+			if !errorlevel! equ 0 echo disk!m! Check OK
+			goto :eof
+		)
+	
 		
 		:offline_disk
 		powershell -command "Get-Disk | Where-Object IsOffline -Eq $False | Set-Disk -IsOffline $True">nul
@@ -108,9 +132,14 @@ if not exist .\listdisk.cfg fsutil file createnew listdisk.cfg 0
 		
 		:checkdiskfail
 		color 0c
-		echo Disk number %m% not found
+		echo ===============================================
+		echo Disk "!m!" not found Volume %s%     Ltr=%ltr%   Label=%m% 
+		echo ===============================================
 		pause
+		start diskmgmt.msc
 		set m=
+		set s=
+		set ltr=
 		
 		:end
 		exit /b
